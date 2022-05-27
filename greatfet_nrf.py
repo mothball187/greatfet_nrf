@@ -35,11 +35,6 @@ MAX_RT=                   0x10
 
 
 CE_PIN = "J1_P17"
-LOGITECH_PRES_CHANS = [5, 8, 14, 17, 32, 35, 41, 44, 62, 65, 71, 74]
-LOGITECH_MOUSE_ADDR = b"\x07\x02\x97\x50\x5A" # 0x5A50970207
-LOGITECH_PRES_DONGLE_ADDR  = b"\x00\x8F\x97\xB0\xBA" # 0xBAB0978F00
-LOGITECH_PRES_ADDR  = b"\x07\x8F\x97\xB0\xBA" # 0xBAB0978F07
-LOGITECH_PRES_PAIR_PL = [0x07, 0x51, 0x07, 0x05, 0x00, 0x01, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x99]
 
 class GreatFETNRF():
     def __init__(self, gf):
@@ -497,32 +492,40 @@ class GreatFETNRF():
         #Now we're ready to get packets.
         self.selftune(delay=10, forever=True)
    
-    def find_channel(self, srcmac, dstmac, channels, rate=2):
+    def find_channel(self, srcmac, dstmac, channels, rate=2, autoinit=False):
         self.init_radio(srcmac=srcmac, dstmac=dstmac, rate=rate)
         self.set_rx_mode()
+        counts = {}
         for ch in channels:
             self.reg_write(REG_RF_CH, ch)
             print("tuning to %i MHz" % (self.get_freq() / (10 ** 6)))
-            pl_count = 0
+            count = 0
             for i in range(25):
                 # print("listening for packets..")
                 
                 # self.txpacket(pair_payload)
                 pl = self.rxpacket(printing=True)
                 if pl is not None:
-                    pl_count += 1
+                    count += 1
 
                 time.sleep(100 / 1000)
 
-            print("%d payloads received on this channel" % pl_count)
+            print("%d payloads received on this channel" % count)
+            counts[ch] = count
             # print("%d payloads received on this channel, continue? (y/n)" % pl_count)
             # a = input()
             # if a.lower() == "y":
             #     continue
 
-            # break
+            # breeak
+        
+        if autoinit:
+            ch = max(counts, key=counts.get)
+            self.init_radio(srcmac=srcmac, dstmac=dstmac, rate=rate, ch=ch)
+        
 
-    def record_packets(seconds=30, delayms=100, filename=None):
+    def record_packets(self, seconds=30, delayms=100, filename=None):
+        self.set_rx_mode()
         print("listening and recording for %d seconds" % seconds)
         seconds = float(seconds)
         start = time.mktime(time.localtime())
@@ -530,8 +533,13 @@ class GreatFETNRF():
             wp = open(filename, "w")
             
         while (time.mktime(time.localtime()) - start) < seconds:
-            packet = self.rxpacket(printing=True)
-            if filename is not None and packet is not None:
-                wp.write("%f %s (%d bytes)" % (time.mktime(time.localtime()), binascii.hexlify(packet), len(packet)))
-                
-        wp.close()
+            packet = self.rxpacket()
+            if packet is not None:
+                line = "%f %s (%d bytes)" % (time.mktime(time.localtime()), binascii.hexlify(packet).decode('latin1'), len(packet))
+                print(line)
+                if filename is not None:
+                    wp.write("%s\n" % line)
+            time.sleep(delayms / 1000)
+        
+        if filename is not None:
+            wp.close()
