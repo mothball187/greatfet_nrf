@@ -21,6 +21,7 @@ REG_CONFIG=               0x00
 REG_EN_AA=                0x01 # Shockburst
 REG_EN_RXADDR=            0x02
 REG_SETUP_AW=             0x03
+REG_SETUP_RETR=           0x04
 REG_DYNPD=                0x1C
 REG_FEATURE=              0x1D
 REG_RF_SETUP=             0x06
@@ -187,12 +188,15 @@ class GreatFETNRF():
             
         return None
         
-    def txpacket(self,payload):
+    def txpacket(self,payload, ack=False):
         if type(payload) is not list:
             payload = list(payload)
 
-        self.gf.spi.transmit([W_TX_PAYLOAD_NOACK] + payload)
-        # self.gf.spi.transmit([W_TX_PAYLOAD] + payload)
+        if not ack:
+            self.gf.spi.transmit([W_TX_PAYLOAD_NOACK] + payload)
+        else:
+            self.gf.spi.transmit([W_TX_PAYLOAD] + payload)
+        
         self.set_tx_mode()
         status = 0
         while not (status & (TX_DS | MAX_RT)):
@@ -282,7 +286,7 @@ class GreatFETNRF():
         self.ce_pin.write(True)
         time.sleep(2 / 1000)
         
-    def init_radio(self, rate=2, srcmac=b"\xe7\xe7\xe7\xe7\xe7", dstmac=b"\xe7\xe7\xe7\xe7\xe7", ch=16, disable_aa=False):
+    def init_radio(self, rate=2, srcmac=b"\xe7\xe7\xe7\xe7\xe7", dstmac=b"\xe7\xe7\xe7\xe7\xe7", ch=16, noack=False, disable_aa=False):
         self.reg_write(REG_CONFIG, 0x00) #Stop nRF
         self.set_idle()
         # self.reg_write(REG_EN_AA, 0x00) #Disable Shockburst
@@ -300,8 +304,12 @@ class GreatFETNRF():
             self.reg_write(REG_EN_AA, 0x00) #Disable Shockburst
 
         self.reg_write(REG_DYNPD, 0x3F) # enable dynamic payload length on all pipes
-        self.reg_write(REG_FEATURE, 0x05) # disable payload-with-ack, enable noack
-        # self.reg_write(REG_FEATURE, 0x07) # disable payload-with-ack, enable noack
+        if noack:
+            self.reg_write(REG_FEATURE, 0x05) # disable payload-with-ack, enable noack
+        else:
+            self.reg_write(REG_FEATURE, 0x07) # enable dyn payload and ack
+            self.reg_write(REG_SETUP_RETR, 0x1f) # 15 retries for AA, 500us auto retransmit delay
+
         self.set_idle()
         self.flush_rx()
         self.flush_tx()
@@ -495,33 +503,31 @@ class GreatFETNRF():
     def find_channel(self, srcmac, dstmac, channels, rate=2, autoinit=False):
         self.init_radio(srcmac=srcmac, dstmac=dstmac, rate=rate)
         self.set_rx_mode()
-        counts = {}
-        for ch in channels:
-            self.reg_write(REG_RF_CH, ch)
-            print("tuning to %i MHz" % (self.get_freq() / (10 ** 6)))
-            count = 0
-            for i in range(25):
-                # print("listening for packets..")
-                pl = self.rxpacket(printing=True)
-                if pl is not None:
-                    count += 1
-
-                time.sleep(100 / 1000)
-
-            print("%d payloads received on this channel" % count)
-            counts[ch] = count
-            if autoinit and count >= 2:
-                break
+        # clear rx buffer
+        packet=self.rxpacket()
+        packet=self.rxpacket()
+        found = False
+        while True:
+            for ch in channels:
+                self.reg_write(REG_RF_CH, ch)
+                print("tuning to %i MHz" % (self.get_freq() / (10 ** 6)))
+                count = 0
+                for i in range(10):
+                    pl = self.rxpacket(printing=True)
+                    if pl is not None:
+                        count += 1
+                        
+                    time.sleep(100 / 1000)
                 
-            # print("%d payloads received on this channel, continue? (y/n)" % pl_count)
-            # a = input()
-            # if a.lower() == "y":
-            #     continue
-
-            # break
-        
-        if autoinit and max(counts.values()) > 1:
-            ch = max(counts, key=counts.get)
+                print("%d payloads received on this channel" % count)
+                if count >= 1:
+                    found = True
+                    break
+	            
+            if found:
+                break
+	        
+        if autoinit:
             print("initializing radio for channel %d" % ch)
             self.init_radio(srcmac=srcmac, dstmac=dstmac, rate=rate, ch=ch)
             return True
