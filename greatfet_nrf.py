@@ -500,7 +500,7 @@ class GreatFETNRF():
         #Now we're ready to get packets.
         self.selftune(delay=5, forever=True)
    
-    def find_channel(self, srcmac, dstmac, channels, rate=2, autoinit=False):
+    def find_channel_passive(self, srcmac, dstmac, channels, rate=2, autoinit=False):
         self.init_radio(srcmac=srcmac, dstmac=dstmac, rate=rate)
         self.set_rx_mode()
         # clear rx buffer
@@ -512,7 +512,7 @@ class GreatFETNRF():
                 self.reg_write(REG_RF_CH, ch)
                 print("tuning to %i MHz" % (self.get_freq() / (10 ** 6)))
                 count = 0
-                for i in range(10):
+                for i in range(4):
                     pl = self.rxpacket(printing=True)
                     if pl is not None:
                         count += 1
@@ -522,6 +522,30 @@ class GreatFETNRF():
                 print("%d payloads received on this channel" % count)
                 if count >= 1:
                     found = True
+                    break
+	            
+            if found:
+                break
+	        
+        if autoinit:
+            print("initializing radio for channel %d" % ch)
+            self.init_radio(srcmac=srcmac, dstmac=dstmac, rate=rate, ch=ch)
+            return True
+            
+        return False
+        
+    def find_channel(self, srcmac, dstmac, channels, rate=2, autoinit=False):
+        self.init_radio(srcmac=srcmac, dstmac=dstmac, rate=rate)
+        found = False
+        print("searching channels for dongle")
+        while True:
+            for ch in channels:
+                self.reg_write(REG_RF_CH, ch)
+                # print("tuning to %i MHz" % (self.get_freq() / (10 ** 6)))
+                # print("sending ping..")
+                if self.txpacket([0x0f, 0x0f, 0x0f, 0x0f], ack=True):
+                    found = True
+                    print("ping acknowledged!")
                     break
 	            
             if found:
