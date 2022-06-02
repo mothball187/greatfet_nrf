@@ -420,12 +420,6 @@ class GreatFETNRF():
         It's important that this not get triggered by false positives."""
         
         while 1:
-            if len(self.addresses) > 0:
-                print("continue sniffing? (y/n)")
-                inp = input()
-                if inp.lower() == "n":
-                    break
-
             self.retune()
             start = time.mktime(time.localtime())
             sys.stdout.flush()
