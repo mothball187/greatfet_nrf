@@ -531,7 +531,7 @@ class GreatFETNRF():
     def find_channel(self, srcmac, dstmac, channels, rate=2, autoinit=False):
         self.init_radio(srcmac=srcmac, dstmac=dstmac, rate=rate)
         found = False
-        print("searching channels for dongle")
+        print("pinging mac on channels")
         while True:
             for ch in channels:
                 self.reg_write(REG_RF_CH, ch)
